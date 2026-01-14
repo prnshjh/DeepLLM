@@ -130,7 +130,7 @@ export const useChat = () => {
       console.error('Chat error:', error);
       
       // For demo purposes, simulate a response if backend is not available
-      const demoResponse = `I received your message: "${content}"\n\nHowever, I'm currently running in demo mode because the backend server is not connected. To fully use DeepLLM, please ensure:\n\n\`\`\`bash\n# Your Flask backend is running on\n${API_BASE_URL}\n\`\`\`\n\nOnce connected, I'll be able to provide AI-powered responses through Ollama.`;
+      const demoResponse = `I received your message: "${content}"\n\nHowever, I'm currently running in demo mode because the backend server is not connected. To fully use DeepLLM, please ensure:\n\n\`\`\`bash\n# Your Flask backend is running on\n${API_BASE_URL}\n\`\`\`\n\nOnce connected, I'll be able to provide responses.`;
       
       updateLastMessage(demoResponse, false);
       setState(prev => ({
