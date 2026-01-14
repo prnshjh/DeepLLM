@@ -47,8 +47,9 @@ const ChatWindow = ({ messages, isLoading }: ChatWindowProps) => {
           </h2>
           
           <p className="text-muted-foreground max-w-md mb-8">
-            Your private neural interface to a locally-hosted AI. 
-            Type a message below to begin the conversation.
+            Your private AI from Deep Algorithms Solutions
+           
+        
           </p>
 
         
