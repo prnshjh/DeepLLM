@@ -90,7 +90,7 @@ export const useChat = () => {
     }));
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat`, {
+      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
