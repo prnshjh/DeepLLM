@@ -2,7 +2,10 @@ import { useState, useCallback, useEffect } from 'react';
 import { Message, ChatState } from '@/types/chat';
 
 const STORAGE_KEY = 'deepllm-chat-history';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://192.168.0.124:5000';
+
+// IMPORTANT: base URL ONLY (no /chat, no /stream)
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://192.168.0.124:5000';
 
 export const useChat = () => {
   const [state, setState] = useState<ChatState>({
@@ -12,136 +15,147 @@ export const useChat = () => {
     error: null,
   });
 
-  // Load messages from localStorage on mount
+  /* ---------------- Load chat history ---------------- */
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setState(prev => ({
-          ...prev,
-          messages: parsed.map((m: Message) => ({
-            ...m,
-            timestamp: new Date(m.timestamp),
-          })),
-        }));
-      } catch (e) {
-        console.error('Failed to parse saved messages:', e);
-      }
+    if (!saved) return;
+
+    try {
+      const parsed: Message[] = JSON.parse(saved);
+      setState(prev => ({
+        ...prev,
+        messages: parsed.map(m => ({
+          ...m,
+          timestamp: new Date(m.timestamp),
+        })),
+      }));
+    } catch (err) {
+      console.error('Failed to load chat history', err);
     }
   }, []);
 
-  // Save messages to localStorage
+  /* ---------------- Save chat history ---------------- */
   useEffect(() => {
     if (state.messages.length > 0) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state.messages));
     }
   }, [state.messages]);
 
+  /* ---------------- Helpers ---------------- */
   const addMessage = useCallback((role: 'user' | 'assistant', content: string) => {
-    const newMessage: Message = {
+    const message: Message = {
       id: crypto.randomUUID(),
       role,
       content,
       timestamp: new Date(),
     };
+
     setState(prev => ({
       ...prev,
-      messages: [...prev.messages, newMessage],
+      messages: [...prev.messages, message],
     }));
-    return newMessage;
+
+    return message;
   }, []);
 
-  const updateLastMessage = useCallback((content: string, isStreaming: boolean = false) => {
+  const updateLastAssistant = useCallback((content: string, isStreaming: boolean) => {
     setState(prev => {
       const messages = [...prev.messages];
-      const lastMessage = messages[messages.length - 1];
-      if (lastMessage && lastMessage.role === 'assistant') {
+      const last = messages[messages.length - 1];
+
+      if (last && last.role === 'assistant') {
         messages[messages.length - 1] = {
-          ...lastMessage,
+          ...last,
           content,
           isStreaming,
         };
       }
+
       return { ...prev, messages };
     });
   }, []);
 
-  const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim() || state.isLoading) return;
+  /* ---------------- Send message (STREAMING) ---------------- */
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!content.trim() || state.isLoading) return;
 
-    // Add user message
-    addMessage('user', content);
+      addMessage('user', content);
 
-    // Add placeholder for assistant
-    const assistantMessage: Message = {
-      id: crypto.randomUUID(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isStreaming: true,
-    };
-
-    setState(prev => ({
-      ...prev,
-      messages: [...prev.messages, assistantMessage],
-      isLoading: true,
-      error: null,
-    }));
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: content,
-          history: state.messages.map(m => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      // Handle streaming response
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let fullContent = '';
-
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value, { stream: true });
-          fullContent += chunk;
-          updateLastMessage(fullContent, true);
-        }
-      }
-
-      updateLastMessage(fullContent, false);
-      setState(prev => ({ ...prev, isLoading: false, isConnected: true }));
-    } catch (error) {
-      console.error('Chat error:', error);
-      
-      // For demo purposes, simulate a response if backend is not available
-      const demoResponse = `I received your message: "${content}"\n\nHowever, I'm currently running in demo mode because the backend server is not connected. To fully use DeepLLM, please ensure:\n\n\`\`\`bash\n# Your Flask backend is running on\n${API_BASE_URL}\n\`\`\`\n\nOnce connected, I'll be able to provide responses.`;
-      
-      updateLastMessage(demoResponse, false);
       setState(prev => ({
         ...prev,
-        isLoading: false,
-        isConnected: false,
-        error: 'Backend not connected - running in demo mode',
+        messages: [
+          ...prev.messages,
+          {
+            id: crypto.randomUUID(),
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            isStreaming: true,
+          },
+        ],
+        isLoading: true,
+        error: null,
       }));
-    }
-  }, [state.messages, state.isLoading, addMessage, updateLastMessage]);
 
+      try {
+        const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: content }),
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Request failed: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let buffer = '';
+        let fullContent = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+
+            const json = JSON.parse(line);
+            if (json.response) {
+              fullContent += json.response;
+              updateLastAssistant(fullContent, true);
+            }
+          }
+        }
+
+        updateLastAssistant(fullContent, false);
+        setState(prev => ({ ...prev, isLoading: false, isConnected: true }));
+      } catch (err) {
+        console.error('Chat error:', err);
+
+        updateLastAssistant(
+          '⚠️ Unable to connect to the AI server. Please try again later.',
+          false
+        );
+
+        setState(prev => ({
+          ...prev,
+          isLoading: false,
+          isConnected: false,
+          error: 'Backend not reachable',
+        }));
+      }
+    },
+    [state.isLoading, addMessage, updateLastAssistant]
+  );
+
+  /* ---------------- Clear chat ---------------- */
   const clearChat = useCallback(() => {
     setState(prev => ({
       ...prev,
@@ -151,23 +165,24 @@ export const useChat = () => {
     localStorage.removeItem(STORAGE_KEY);
   }, []);
 
+  /* ---------------- Health check ---------------- */
   const checkConnection = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, {
+      const res = await fetch(`${API_BASE_URL}/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(5000),
       });
-      setState(prev => ({ ...prev, isConnected: response.ok }));
+
+      setState(prev => ({ ...prev, isConnected: res.ok }));
     } catch {
       setState(prev => ({ ...prev, isConnected: false }));
     }
   }, []);
 
-  // Check connection periodically
   useEffect(() => {
     checkConnection();
-    const interval = setInterval(checkConnection, 30000);
-    return () => clearInterval(interval);
+    const id = setInterval(checkConnection, 30000);
+    return () => clearInterval(id);
   }, [checkConnection]);
 
   return {
