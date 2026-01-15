@@ -5,7 +5,7 @@ const STORAGE_KEY = 'deepllm-chat-history';
 
 // IMPORTANT: base URL ONLY (no /chat, no /stream)
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'http://192.168.0.124:5000';
+  import.meta.env.VITE_API_URL || 'https://192.168.0.124:5000';
 
 export const useChat = () => {
   const [state, setState] = useState<ChatState>({
